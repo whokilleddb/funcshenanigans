@@ -1,8 +1,8 @@
-# funcshenanigans
+# FuncShenanigans
 
 This research was inspired by the [Shellcode Fluctuation](https://github.com/mgeeky/ShellcodeFluctuation) technique along with [this blog about a self mutating program](https://ephemeral.cx/2013/12/writing-a-self-mutating-x86_64-c-program/). So far we have seen the fluctuation technique be used for things like Shellcode and entire PEs, but I wanted to try and use this technique for something simpler - fluctuating just one function. 
 
-The goal was to experiment with function bounds, memory protection and VEHs. This repositgory documents the results of such experiments in a very rough way, documenting the techniques as we go. 
+The goal was to experiment with function bounds, memory protection and VEHs. This repository documents the results of such experiments in a very rough way, documenting the techniques as we go. 
 
 ## Pre-requisites 
 
@@ -75,7 +75,7 @@ We see that after the code for the `fluctuate()` function ends, the page is fill
 
 My first thought with this, inspired from [this blog about a self mutating program](https://ephemeral.cx/2013/12/writing-a-self-mutating-x86_64-c-program/) was: "What if I replace the functionality of the code?" 
 
-My idead was to have a benign function, but then use some VEH magic to replace it's functionality at runtime to run malicious code. And that's what I did! 
+My initial idea was to have a benign function, but then use some VEH magic to replace it's functionality at runtime to run malicious code. And that's what I did! 
 
 Let's look at the main function: 
 
@@ -147,7 +147,7 @@ Finally, we call the `fluctuate()` function again. Since we have the function's 
 LONG WINAPI replacer_veh(PEXCEPTION_POINTERS pExceptionInfo) {
 	PVOID p_exec_addr = pExceptionInfo->ExceptionRecord->ExceptionAddress;
 
-  	// Check if Exception if within our boundarty 
+  	// Check if Exception if within our boundary 
     if ((p_exec_addr > (PVOID)__boundary_func) || (p_exec_addr < (PVOID)fluctuate)) {
         printf("[-] Unhandled Exception Occured at: 0x%p\n", p_exec_addr);        
         return EXCEPTION_CONTINUE_SEARCH;  
@@ -188,16 +188,16 @@ LONG WINAPI replacer_veh(PEXCEPTION_POINTERS pExceptionInfo) {
 }
 ```
 
-Its a very easy to understand function. First, when an exception is occured, we check if it originates from the page containing the `fluctuate()` function and is of the type `EXCEPTION_ACCESS_VIOLATION` . If not, we return a `EXCEPTION_CONTINUE_SEARCH`. 
+Its a very easy to understand function. First, when an exception is occurred, we check if it originates from the page containing the `fluctuate()` function and is of the type `EXCEPTION_ACCESS_VIOLATION` . If not, we return a `EXCEPTION_CONTINUE_SEARCH`. 
 
 However, if these conditions are satisfied, we proceed to use `VirtualProtect()` to make it writeable and use `WriteProcessMemory` to overwrite the function code with our shellcode. Finally, we mark the page as executable and return the flow of execution back to the program with `EXCEPTION_CONTINUE_EXECUTION`.
 
 So just to put it everything together:
 - We register a VEH to handle the exception we would throw in the future
-- We make the page contaning the code of `fluctuate()` as RW, encrypt it and then again change the memory permissions to `PAGE_NOACCESS`
+- We make the page containing the code of `fluctuate()` as RW, encrypt it and then again change the memory permissions to `PAGE_NOACCESS`
 - Calling `fluctuate()` now causes an access `ACCESS VIOLATION` exception
 - Our VEH verifies the exception was raise within the page bounds and is of the right type 
-- It then marks the page as RW, writes our shellcode to it, marks the page as executable, and continues excecution like nothing happened
+- It then marks the page as RW, writes our shellcode to it, marks the page as executable, and continues execution like nothing happened
 - Profit! 
 
 With everything put together, it should look something like this:
@@ -317,11 +317,11 @@ So, when we set the timer to call this function, it essentially encrypts the fun
 
 ```c
 LONG WINAPI fluctuator_veh(PEXCEPTION_POINTERS pExceptionInfo) {
-    // Check if Exception if within our boundarty 
+    // Check if Exception if within our boundary 
     PVOID p_exec_addr = pExceptionInfo->ExceptionRecord->ExceptionAddress;
 
     if ((p_exec_addr > (PVOID)__boundary_func) || (p_exec_addr < (PVOID)fluctuate)) {
-        printf("[-] Unhandled Exception occured at: 0x%p as 0x%lx\n", p_exec_addr, pExceptionInfo->ExceptionRecord->ExceptionCode);      
+        printf("[-] Unhandled Exception occurred at: 0x%p as 0x%lx\n", p_exec_addr, pExceptionInfo->ExceptionRecord->ExceptionCode);      
         ExitProcess(0);  
         return EXCEPTION_CONTINUE_SEARCH;  
 	}
@@ -352,7 +352,7 @@ LONG WINAPI fluctuator_veh(PEXCEPTION_POINTERS pExceptionInfo) {
 
 The VEH does the usual checks about the origin of the exception and the code, just like before, and if all checks pass, we proceed. We make sure that the globals are properly initialized and then sleep for 2s to delay execution while the function remains encrypted. We then call the `protect()` function again, but this time `encrypt` set to `FALSE`. This decrypts the function and marks the function as RX making it suitable for execution. 
 
-Before passing the execution to the function again, we call `CreateTimerQueueTimer()` again to set a timer which again calls the `encryptor_wrapper` function but this time after a delay of `FLUCT_DURATION` milliseconds. Once the timer is registered, we pass the program flow back to the `fluctuate()` function. With the timer registered, it means that `fluctuate()` only has a time period of `FLUCT_DURATION` milliseconds before it is encypted again and marked as `PAGE_NOACCESS`, therefore continuing the cycle. 
+Before passing the execution to the function again, we call `CreateTimerQueueTimer()` again to set a timer which again calls the `encryptor_wrapper` function but this time after a delay of `FLUCT_DURATION` milliseconds. Once the timer is registered, we pass the program flow back to the `fluctuate()` function. With the timer registered, it means that `fluctuate()` only has a time period of `FLUCT_DURATION` milliseconds before it is encrypted again and marked as `PAGE_NOACCESS`, therefore continuing the cycle. 
 
 Therefore, if our calculations are correct, the intervals in the `fluctuate()` function should go from 1s to roughly 3s (2s of sleep and the original 1s). Compiling and running our code gives us the following output:
 
@@ -362,7 +362,7 @@ We can clearly see that the time difference went up by 3s (ignore the first one)
 
 ## Conclusion
 
-Even though _fluctation_ as a concept isnt new, this technique can be a good-to-have tool in your arsenal. You can even create code caves and switch out the function with valid benign instuctions when the function is not in use(something worth looking into: like [enclaves](https://learn.microsoft.com/en-us/windows/win32/trusted-execution/enclaves)?). Either ways, this was a fun PoC to experiment with. 
+Even though _fluctation_ as a concept isnt new, this technique can be a good-to-have tool in your arsenal. You can even create code caves and switch out the function with valid benign instructions when the function is not in use(something worth looking into: like [enclaves](https://learn.microsoft.com/en-us/windows/win32/trusted-execution/enclaves)?). Either ways, this was a fun PoC to experiment with. 
 
 For comments/discussions feel free to reach out to me at [@whokilleddb](https://x.com/whokilleddb) or open PRs! 
 

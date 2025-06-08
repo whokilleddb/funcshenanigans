@@ -27,11 +27,11 @@ VOID CALLBACK encryptor_wrapper(IN PVOID lpParameter, IN BOOLEAN TimerOrWaitFire
 }
 
 LONG WINAPI fluctuator_veh(PEXCEPTION_POINTERS pExceptionInfo) {
-    // Check if Exception if within our boundarty 
+    // Check if Exception if within our boundary 
     PVOID p_exec_addr = pExceptionInfo->ExceptionRecord->ExceptionAddress;
 
     if ((p_exec_addr > (PVOID)__boundary_func) || (p_exec_addr < (PVOID)fluctuate)) {
-        printf("[-] Unhandled Exception occured at: 0x%p as 0x%lx\n", p_exec_addr, pExceptionInfo->ExceptionRecord->ExceptionCode);      
+        printf("[-] Unhandled Exception occurred at: 0x%p as 0x%lx\n", p_exec_addr, pExceptionInfo->ExceptionRecord->ExceptionCode);      
         ExitProcess(0);  
         return EXCEPTION_CONTINUE_SEARCH;  
 	}

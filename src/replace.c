@@ -5,7 +5,7 @@
 #endif
 
 LONG WINAPI replacer_veh(PEXCEPTION_POINTERS pExceptionInfo) {
-  // Check if Exception if within our boundarty 
+  // Check if Exception if within our boundary 
   PVOID p_exec_addr = pExceptionInfo->ExceptionRecord->ExceptionAddress;
 
     if ((p_exec_addr > (PVOID)__boundary_func) || (p_exec_addr < (PVOID)fluctuate)) {
@@ -13,7 +13,7 @@ LONG WINAPI replacer_veh(PEXCEPTION_POINTERS pExceptionInfo) {
         return EXCEPTION_CONTINUE_SEARCH;  
     }
 	
-	// printf("[+] Exception occured from within bounds: 0x%p\n", p_exec_addr);
+	// printf("[+] Exception occurred from within bounds: 0x%p\n", p_exec_addr);
 
 	if (pExceptionInfo->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION) {
 		printf("[+] Invalid Exception code found: 0x%lx\n", pExceptionInfo->ExceptionRecord->ExceptionCode);
