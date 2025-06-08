@@ -1,9 +1,5 @@
 #include "common.h"
 
-// Boundary function to mark the starting bound of the function to fluctuate
-// __attribute__((aligned(FUNC_SIZE))) 
-// void __start_boundary() {}
-
 __attribute__((aligned(FUNC_SIZE)))
 VOID fluctuate() {
 	for (int i = 0; i < 5; i++) {
@@ -16,5 +12,5 @@ VOID fluctuate() {
 }
 
 // Boundary function to mark the end bound of the function to fluctuate
-__attribute__((aligned(FUNC_SIZE))) 
+__attribute__((aligned(FUNC_SIZE)))
 void __boundary_func() {}

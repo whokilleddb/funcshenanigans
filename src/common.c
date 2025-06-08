@@ -9,6 +9,11 @@ VOID get_mem_base_address(LPVOID addr) {
 		return;
 	}
 	printf("[+] Memory Base Address:\t0x%p\n", mbi.BaseAddress);
+
+    if (addr != mbi.BaseAddress) {
+        printf("[-] Function does not align with Page boundary\n");
+        ExitProcess(-1);
+    }
 }
 
 VOID byte_xor(unsigned char * addr, SIZE_T region_size, unsigned char xor_byte) {
