@@ -207,6 +207,167 @@ With everything put together, it should look something like this:
 A couple of things to note here: 
 
 - You _technically_ dont need to encrypt the memory for this to work, but it helps with the PoC and would be more relevant later
-- Any code placed after the second/tampered `fluctuate()` code is never guaranteed ton work
+- Any code placed after the second/tampered `fluctuate()` code is never guaranteed to work
+- You can also fetch the shellcode remotely at runtime to be more evasive 
 
 However, this experiment was not novel. We also dont get to actually use the functionality exposed by `fluctuate()` for that matter, which brings us to the next experiment. With the knowledge about page boundaries and some more, we can move onto the next experiment where we actually _fluctuate_ the function. 
+
+## Experiment 2: Actually Fluctuating It 
+
+> See: `fluctuator.c`
+
+This time, we want to _fluctuate_ our function for real, so that it is encrypted in memory until it is called, and goes back to being encrypted when it's done. For that, first lets take a look at the main function and some globals:
+
+```c
+// Globals
+HANDLE g_htimer_queue = NULL;
+HANDLE g_htimer = NULL;
+
+int main() {
+	printf("[+] Function Addr: \t\t0x%p\n", fluctuate);
+	printf("[+] End Bound:     \t\t0x%p\n\n", __boundary_func);
+
+    get_mem_base_address((LPVOID)fluctuate);
+
+    // Register VEH 
+	PVOID p_veh_h = AddVectoredExceptionHandler(1, (PVECTORED_EXCEPTION_HANDLER)fluctuator_veh);
+	if (p_veh_h == NULL) {
+		printf("[-] AddVectoredExceptionHandler() failed\n");
+		return -1;
+	}
+	printf("\n[+] Registered VEH\n");
+
+    do {        
+        printf("[+] Calling function without fluctuation:\n\n");
+       
+        fluctuate();
+
+        // Create Timer queue
+        if (!g_htimer_queue) {
+            g_htimer_queue = CreateTimerQueue();
+            if (g_htimer_queue == NULL) {
+                eprint("CreateTimerQueue");
+                break;
+            }
+        }
+
+        if (!CreateTimerQueueTimer(&g_htimer, g_htimer_queue, (WAITORTIMERCALLBACK)encryptor_wrapper, NULL, 0, 0x00, 0x00)) {
+            eprint("CreateTimerQueue");
+            break;
+        }
+
+        printf("[+] Created Timer to encrypt function\n");
+        
+        // Make sure function is encrypted
+        Sleep(FLUCT_DURATION);
+
+        printf("[+] Calling fluctuating function:\n\n");
+       
+        fluctuate();
+        printf("[============================== END ==============================]\n");
+
+    } while(FALSE);
+
+    if (p_veh_h) RemoveVectoredExceptionHandler(p_veh_h); 
+
+    return 0;
+}
+```
+
+Just like before, the first interesting thing we do is register a VEH `fluctuator_veh` which we will talk about later. The next interesting part of the code is: 
+
+```c
+g_htimer_queue = CreateTimerQueue();
+CreateTimerQueueTimer(&g_htimer, g_htimer_queue, (WAITORTIMERCALLBACK)fluctuator, NULL, 0, 0x00, 0x00);
+```
+We create a a queue for timers using [`CreateTimerQueue()`](https://learn.microsoft.com/en-us/windows/win32/api/threadpoollegacyapiset/nf-threadpoollegacyapiset-createtimerqueue) and then add a timer to it using [`CreateTimerQueueTimer()`](https://learn.microsoft.com/en-us/windows/win32/api/threadpoollegacyapiset/nf-threadpoollegacyapiset-createtimerqueuetimer). Essentially what we are doing here is creating a timer which would execute the `encryptor_wrapper()` function after 0 milliseconds.
+
+We then sleep for `FLUCT_DURATION`(which has been set to 1s=1000 milliseconds in our case) to make sure that the `encryptor_wrapper()` has done its jobs and the we call the `fluctuate()` function again. 
+
+Now, before we take a look at the rest of the functions, we first take a look at the `protect()` function:
+
+```c
+void protect(BOOL encrypt) {
+    DWORD oldp = 0;
+    if (!VirtualProtect((LPVOID)fluctuate, FUNC_SIZE, PAGE_READWRITE, &oldp)) {
+        eprint("VirtualProtect");
+        ExitProcess(0);
+    }
+
+    byte_xor((unsigned char *)fluctuate, FUNC_SIZE, XORKEY);
+
+    if (!VirtualProtect((LPVOID)fluctuate, FUNC_SIZE, encrypt==TRUE? PAGE_NOACCESS:PAGE_EXECUTE_READ, &oldp)) {
+        eprint("VirtualProtect");
+        ExitProcess(0);
+    }
+}
+```
+
+This simple function takes one parameter, `encrypt` which dictates whether the function would encrypt the target memory or decrypt it. Either ways, the function first marks the page containing the `fluctuate()` as writeable, xor the bytes of the memory (since XOR is symmetric, we need to do this irrespective of encryption or decryption. In an ideal world, stronger encryption/decryption methods would be used and handled separately). Finally, we call `VirtualProtect()` one last time, and if the `encrypt` flag is set to true, we change the memory permissions to `PAGE_NOACCESS` else we mark the page as RX to allow code execution. 
+
+Now coming to the `encryptor_wrapper()` function. It is just a wrapper function which calls `protect()` with `encrypt` set to `TRUE`:
+
+```c
+VOID CALLBACK encryptor_wrapper(IN PVOID lpParameter, IN BOOLEAN TimerOrWaitFired) {
+    protect(TRUE);
+}
+```
+
+So, when we set the timer to call this function, it essentially encrypts the function and changes the page memory protection to `PAGE_NOACCESS`. Therefore when we call the `fluctuate()` function after, it causes an `ACCESS VIOLATION` and our VEH is called into action. Time to look into `fluctuator_veh()` function:
+
+```c
+LONG WINAPI fluctuator_veh(PEXCEPTION_POINTERS pExceptionInfo) {
+    // Check if Exception if within our boundarty 
+    PVOID p_exec_addr = pExceptionInfo->ExceptionRecord->ExceptionAddress;
+
+    if ((p_exec_addr > (PVOID)__boundary_func) || (p_exec_addr < (PVOID)fluctuate)) {
+        printf("[-] Unhandled Exception occured at: 0x%p as 0x%lx\n", p_exec_addr, pExceptionInfo->ExceptionRecord->ExceptionCode);      
+        ExitProcess(0);  
+        return EXCEPTION_CONTINUE_SEARCH;  
+	}
+
+	if (pExceptionInfo->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION) {
+		printf("[-] Invalid Exception code found: 0x%lx\n", pExceptionInfo->ExceptionRecord->ExceptionCode);
+		return EXCEPTION_CONTINUE_SEARCH;  
+	}
+
+    if ((g_htimer == NULL)  || (g_htimer_queue == NULL)) {
+        printf("[-] Globals aren't initialized\n");
+        ExitProcess(0);
+    }
+
+    Sleep(2000);
+
+    // Decrypt the function
+    protect(FALSE);
+
+    if (!CreateTimerQueueTimer(&g_htimer, g_htimer_queue, (WAITORTIMERCALLBACK)encryptor_wrapper, NULL, FLUCT_DURATION, 0x00, 0x00)) {
+        eprint("CreateTimerQueue");
+        ExitProcess(0);
+    }
+
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+```
+
+The VEH does the usual checks about the origin of the exception and the code, just like before, and if all checks pass, we proceed. We make sure that the globals are properly initialized and then sleep for 2s to delay execution while the function remains encrypted. We then call the `protect()` function again, but this time `encrypt` set to `FALSE`. This decrypts the function and marks the function as RX making it suitable for execution. 
+
+Before passing the execution to the function again, we call `CreateTimerQueueTimer()` again to set a timer which again calls the `encryptor_wrapper` function but this time after a delay of `FLUCT_DURATION` milliseconds. Once the timer is registered, we pass the program flow back to the `fluctuate()` function. With the timer registered, it means that `fluctuate()` only has a time period of `FLUCT_DURATION` milliseconds before it is encypted again and marked as `PAGE_NOACCESS`, therefore continuing the cycle. 
+
+Therefore, if our calculations are correct, the intervals in the `fluctuate()` function should go from 1s to roughly 3s (2s of sleep and the original 1s). Compiling and running our code gives us the following output:
+
+![](./imgs/fluctuate.png)
+
+We can clearly see that the time difference went up by 3s (ignore the first one). Note that during for 2 out of those 3s, the function remains encrypted and any memory scanners wont be picking up on it. Also, any functions called after `fluctuate()` will be called normally and while `fluctuate()` can stay encrypted in memory with `PAGE_NOACCESS` unless it is accessed again.
+
+## Conclusion
+
+Even though _fluctation_ as a concept isnt new, this technique can be a good-to-have tool in your arsenal. You can even create code caves and switch out the function with valid benign instuctions when the function is not in use(something worth looking into: like [enclaves](https://learn.microsoft.com/en-us/windows/win32/trusted-execution/enclaves)?). Either ways, this was a fun PoC to experiment with. 
+
+For comments/discussions feel free to reach out to me at [@whokilleddb](https://x.com/whokilleddb) or open PRs! 
+
+Happy Hacking.
+
+Praise the sun! 
+
+![](https://i.ytimg.com/vi/v7pAcB-MX_c/maxresdefault.jpg)

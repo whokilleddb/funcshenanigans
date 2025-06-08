@@ -2,20 +2,10 @@
 #define FLUCT_DURATION 1*1000 // Fluctuate for 1s
 
 // Globals
-CRITICAL_SECTION g_critical_section = {0};
 HANDLE g_htimer_queue = NULL;
 HANDLE g_htimer = NULL;
 
 void protect(BOOL encrypt) {
-    EnterCriticalSection(&g_critical_section);
-
-    // if (encrypt) {
-    //     printf("[+] Encrypting Function\n");
-    // } else {
-    //     printf("[+] Decrypting Function\n");
-    // }
-
-    // Firstly make thing Write-able
     DWORD oldp = 0;
     if (!VirtualProtect((LPVOID)fluctuate, FUNC_SIZE, PAGE_READWRITE, &oldp)) {
         eprint("VirtualProtect");
@@ -24,21 +14,13 @@ void protect(BOOL encrypt) {
 
     byte_xor((unsigned char *)fluctuate, FUNC_SIZE, XORKEY);
 
-    // if (encrypt) {
-    //     printf("[+] Post encryption function hexdump(first 16 bytes):\n\n");
-    //     hexdump(fluctuate, FUNC_SIZE/256);
-    //     printf("\n");
-    // }
-
     if (!VirtualProtect((LPVOID)fluctuate, FUNC_SIZE, encrypt==TRUE? PAGE_NOACCESS:PAGE_EXECUTE_READ, &oldp)) {
         eprint("VirtualProtect");
         ExitProcess(0);
     }
-    LeaveCriticalSection(&g_critical_section);
-
 }
 
-VOID CALLBACK fluctuator(IN PVOID lpParameter, IN BOOLEAN TimerOrWaitFired) {
+VOID CALLBACK encryptor_wrapper(IN PVOID lpParameter, IN BOOLEAN TimerOrWaitFired) {
     UNUSED(lpParameter);
     UNUSED(TimerOrWaitFired);
     protect(TRUE);
@@ -71,7 +53,7 @@ LONG WINAPI fluctuator_veh(PEXCEPTION_POINTERS pExceptionInfo) {
     // Decrypt the function
     protect(FALSE);
 
-    if (!CreateTimerQueueTimer(&g_htimer, g_htimer_queue, (WAITORTIMERCALLBACK)fluctuator, NULL, FLUCT_DURATION, 0x00, 0x00)) {
+    if (!CreateTimerQueueTimer(&g_htimer, g_htimer_queue, (WAITORTIMERCALLBACK)encryptor_wrapper, NULL, FLUCT_DURATION, 0x00, 0x00)) {
         eprint("CreateTimerQueue");
         ExitProcess(0);
     }
@@ -80,14 +62,10 @@ LONG WINAPI fluctuator_veh(PEXCEPTION_POINTERS pExceptionInfo) {
 }
 
 int main() {
-    // printf("[+] Start Bound:   \t\t0x%p\n", __start_boundary);
 	printf("[+] Function Addr: \t\t0x%p\n", fluctuate);
 	printf("[+] End Bound:     \t\t0x%p\n\n", __boundary_func);
 
     get_mem_base_address((LPVOID)fluctuate);
-
-    // Initialize Critical section object
-    InitializeCriticalSection(&g_critical_section);
 
     // Register VEH 
 	PVOID p_veh_h = AddVectoredExceptionHandler(1, (PVECTORED_EXCEPTION_HANDLER)fluctuator_veh);
@@ -101,11 +79,7 @@ int main() {
         printf("[+] Calling function without fluctuation:\n\n");
        
         fluctuate();
-             
-        // printf("[+] Pre-shenanigans function hexdump(first 16 bytes):\n\n");
-        // hexdump(fluctuate, FUNC_SIZE/256);
-        // printf("\n");
-        
+
         // Create Timer queue
         if (!g_htimer_queue) {
             g_htimer_queue = CreateTimerQueue();
@@ -115,7 +89,7 @@ int main() {
             }
         }
 
-        if (!CreateTimerQueueTimer(&g_htimer, g_htimer_queue, (WAITORTIMERCALLBACK)fluctuator, NULL, FLUCT_DURATION, 0x00, 0x00)) {
+        if (!CreateTimerQueueTimer(&g_htimer, g_htimer_queue, (WAITORTIMERCALLBACK)encryptor_wrapper, NULL, 0, 0x00, 0x00)) {
             eprint("CreateTimerQueue");
             break;
         }
@@ -133,6 +107,6 @@ int main() {
     } while(FALSE);
 
     if (p_veh_h) RemoveVectoredExceptionHandler(p_veh_h); 
-    DeleteCriticalSection(&g_critical_section);
+
     return 0;
 }
