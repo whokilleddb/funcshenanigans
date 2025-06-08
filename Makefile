@@ -6,7 +6,8 @@ SRC=src
 all: build
 
 build:
-	$(CC) $(CCFLAGS) -I $(INCLUDES) $(SRC)/replace.c $(SRC)/bound.c  -o replace.exe 
+	$(CC) $(CCFLAGS) -I $(INCLUDES) $(SRC)/replace.c $(SRC)/bound.c $(SRC)/common.c  -o replace.exe
+	$(CC) $(CCFLAGS) -I $(INCLUDES) $(SRC)/fluctuator.c $(SRC)/bound.c $(SRC)/common.c -o fluctuator.exe 
 
 clean:
 	@rm -rf *.exe

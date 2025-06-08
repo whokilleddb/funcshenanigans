@@ -5,6 +5,6 @@
 
 void __start_boundary();
 void fluctuate();
-void __end_boundary();
+void __boundary_func();
 
 #endif 

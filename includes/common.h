@@ -28,6 +28,16 @@
 	#define U_PTR( x ) ( UINT_PTR ) x
 #endif
 
+#ifndef UNUSED
+	#define UNUSED(expr) do { (void)(expr); } while (0)
+#endif
+
 #define eprint(x)           printf("[-] %s() failed at %s:%d with error: 0x%lx\n", x, __FILE__,__LINE__, GetLastError())
 #define nteprint(x, status) printf("[-] %s() failed at %s:%d with error: 0x%lx\n", x, __FILE__, __LINE__, status)
 #define emalloc()           printf("[-] malloc() failed at %s::%d\n", __FILE__, __LINE__)
+
+
+// Exported function
+VOID get_mem_base_address(LPVOID addr);
+VOID byte_xor(unsigned char * addr, SIZE_T region_size, unsigned char xor_byte) ;
+void hexdump(const void *addr, size_t size);
